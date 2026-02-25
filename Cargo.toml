@@ -1,7 +1,11 @@
 [package]
 name = "OxideMC"
-version = "0.0.1"
-edition = "2024"
+version = "0.0.4"
+edition = "2021"
+
+[[bin]]
+name = "oxidemc"
+path = "src/main.rs"
 
 [dependencies]
 cliclack = "0.3.9"
