@@ -1,24 +1,35 @@
-use cliclack::{input, intro, outro, progress_bar, select};
+use cliclack::{input, intro, outro, progress_bar, confirm, select};
 use futures_util::StreamExt;
 use reqwest::{Client, blocking::get};
-use serde_json::Value;
+use serde_json::{Value};
 use std::error::Error;
-use std::fs::File;
+use std::fs::{File, create_dir_all};
 use std::io::Write;
 use std::path::PathBuf; // This brings the .next() method into scope
 
 fn main() {
+    // Intro
+    // Setup Difficulty
+    // Server Name
+    // Server Directory (if advanced)
+    // Server Port (if advanced)
+    // Platform
+    // Version
+    // Start after download
+    // Download
+    // Eula
+    // Outro
+
     intro("Setting up your Minecraft Server");
 
-    let setup_difficulty = select("How do you want to set up your server?")
+    let setup_difficulty: String = select("How do you want to set up your server?")
         .item(
             "easy",
             "Easy (Recommended)",
             "Minimal configuration, just the basics!",
         )
         .item("advanced", "Advanced", "More configuration options!")
-        .interact()
-        .unwrap();
+        .interact().unwrap().to_string();
 
     let server_name: String = input("What do you want to name your server?")
         .default_input("A Minecraft Server")
@@ -29,12 +40,14 @@ fn main() {
                 Ok(())
             }
         })
-        .interact()
-        .unwrap();
+        .interact().unwrap();
+
+    let mut server_dir: String = "~/minecraft_server".to_string();
+    let mut server_port: u16 = 25565;
 
     if setup_difficulty != "easy" {
-        let server_dir: String = input("Where do you want to save your server?")
-            .default_input("./minecraft_server")
+        server_dir = input("Where do you want to save your server?")
+            .default_input("~/minecraft_server")
             .validate(|input: &String| {
                 if input.trim().is_empty() {
                     Err("Server directory cannot be empty".to_string())
@@ -45,7 +58,7 @@ fn main() {
             .interact()
             .unwrap();
 
-        let server_port: u16 = input("Which port do you want to use?")
+        server_port = input("Which port do you want to use?")
             .default_input("25565")
             .validate(|input: &String| {
                 if input.parse::<u16>().is_ok() {
@@ -70,49 +83,71 @@ fn main() {
         .interact()
         .unwrap();
 
-    let url = get_download_url(&platform, &version)
-        .trim_matches('"')
-        .to_string();
+    let start_after_download = confirm("Do you want to start the server after downloading?")
+        .interact()
+        .unwrap();
 
-    download(&url).unwrap();
+    let jar_url = get_jar_url(&platform, &version);
+    let _ = download(&jar_url, &server_dir, &"server.jar".to_string());
+
+    if start_after_download {
+        todo!("Start server after download not implemented yet");
+    }
+
 
     outro("You're all set!");
 }
 
+
 #[tokio::main]
-async fn download(url: &str) -> Result<(), Box<dyn Error>> {
+async fn download(url: &str, dir: &str, filename: &str) -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let res = client.get(url).send().await?;
 
+    // 1. Check response status before proceeding
+    if !res.status().is_success() {
+        return Err(format!("Server returned error: {}", res.status()).into());
+    }
+
     let total_size = res.content_length().ok_or("Failed to get content length")?;
 
-    let path = "/home/ezra/Downloads/Paper.jar";
-    let mut file = File::create(path)?;
-    let mut downloaded: u64 = 0;
-    let mut stream = res.bytes_stream();
+    // 2. Robust Path Handling
+    let expanded_dir = shellexpand::full(dir)?.into_owned();
+    let directory_path = PathBuf::from(expanded_dir);
+    
+    // Create the directory if it's missing
+    create_dir_all(&directory_path)?;
+    
+    let file_path = directory_path.join(filename);
 
+    // 3. File Setup
+    let mut file = File::create(&file_path)?;
+    let mut stream = res.bytes_stream();
+    let mut downloaded: u64 = 0;
+
+    // 4. Progress Bar Setup
     let pb = progress_bar(total_size);
-    pb.start("Downloading...");
+    pb.start(format!("Downloading {}", filename));
 
     while let Some(item) = stream.next().await {
-        // We handle the result explicitly to avoid the [u8] size error
-        let chunk = match item {
-            Ok(c) => c,
-            Err(e) => return Err(format!("Download error: {}", e).into()),
-        };
-
+        // Concisely handle the stream result
+        let chunk = item?; 
+        
         file.write_all(&chunk)?;
 
         downloaded += chunk.len() as u64;
-        pb.set_message(format!("Downloaded: {}/{} bytes", downloaded, total_size));
+        pb.set_message(format!("{:.2} MB / {:.2} MB", 
+            downloaded as f64 / 1_048_576.0, 
+            total_size as f64 / 1_048_576.0
+        ));
         pb.inc(chunk.len() as u64);
     }
 
-    pb.stop("Download complete!");
+    pb.stop(format!("Finished downloading to {:?}", file_path.display()));
     Ok(())
 }
 
-fn get_download_url(platform: &str, version: &String) -> String {
+fn get_jar_url(platform: &str, version: &String) -> String {
     if platform == "Vanilla" {
         todo!("Vanilla not impllemented yet")
     } else if platform == "Paper" {
@@ -133,6 +168,8 @@ fn get_download_url(platform: &str, version: &String) -> String {
             .unwrap()
             .get("url")
             .unwrap()
+            .to_string()
+            .trim_matches('"')
             .to_string();
     } else if platform == "Fabric" {
         todo!("Fabric not impllemented yet")
