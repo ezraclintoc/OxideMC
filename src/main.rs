@@ -1,35 +1,17 @@
-use cliclack::{confirm, input, intro, outro, progress_bar, select};
+use cliclack::{confirm, input, intro, outro, progress_bar, spinner, select};
 use reqwest::blocking::Client;
+use reqwest::StatusCode;
 use serde_json::Value;
 use std::error::Error;
-use std::fs::{create_dir_all, File};
-use std::io::Read;
-use std::io::Write;
-use std::path::PathBuf;
-
-fn expand_path(path: &str) -> PathBuf {
-    let p = if path.starts_with('~') {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-        PathBuf::from(home).join(path.trim_start_matches('~').trim_start_matches('/'))
-    } else {
-        PathBuf::from(path)
-    };
-
-    if p.is_relative() {
-        std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(&p)
-            .canonicalize()
-            .unwrap_or_else(|_| p)
-    } else {
-        p
-    }
-}
+use std::fs::{self, create_dir_all, File};
+use std::io::{self, BufRead, BufReader, Read, Write, BufWriter};
+use std::path::{PathBuf};
+use std::process::{Command, Stdio};
 
 fn main() {
     let _ = intro("Setting up your Minecraft Server");
 
-    let setup_difficulty: String = select("How do you want to set up your server?")
+    let setup_complexity: String = select("How do you want to set up your server?")
         .item(
             "easy",
             "Easy (Recommended)",
@@ -41,20 +23,35 @@ fn main() {
         .to_string();
 
     let server_name: String = input("What do you want to name your server?")
-        .default_input("A Minecraft Server")
+        .default_input("minecraft-server")
         .required(true)
         .interact()
         .unwrap();
 
-    let mut server_dir: String = "~/minecraft_server".to_string();
-    let mut server_port: u16 = 25565;
+    let server_dir: PathBuf;
+    let server_port: u16;
 
-    if setup_difficulty != "easy" {
-        server_dir = input("Where do you want to save your server?")
+    if setup_complexity != "easy" {
+        let input_dir: String = input("Where do you want to save your server?")
             .default_input("~/minecraft_server")
             .required(true)
+            .validate(|path: &String| {
+                let epath = expand_path(path);
+                if epath.is_ok() {
+                    Ok(())
+                } else {
+                    Err(epath.err().unwrap())
+                }
+            })
             .interact()
             .unwrap();
+
+        let slash = if input_dir.ends_with('/') { "" } else { "/" };
+        server_dir = expand_path(format!("{}{}", input_dir.as_str(), slash).as_str())
+            .unwrap()
+            .join(server_name.as_str());
+
+        println!("Server directory set to: {}", server_dir.display());
 
         server_port = input("Which port do you want to use?")
             .default_input("25565")
@@ -68,6 +65,10 @@ fn main() {
             })
             .interact()
             .unwrap();
+    } else {
+        server_dir = expand_path(".").unwrap().join(server_name.as_str());
+        println!("Server directory set to: {}", server_dir.display());
+        server_port = 25565;
     }
 
     let platform = select("Which software do you want to use?")
@@ -86,47 +87,95 @@ fn main() {
         .interact()
         .unwrap();
 
-    let start_after_download = confirm("Do you want to start the server after downloading?")
-        .interact()
-        .unwrap();
-
     let jar_url = get_jar_url(&platform, &version);
-    let _ = download(&jar_url, &server_dir, "server.jar");
+    let _ = download_url(&jar_url, &server_dir, "server.jar");
 
-    if start_after_download {
-        if confirm("Do you accept EULA?").interact().unwrap() {
-            std::fs::write(expand_path(&server_dir).join("eula.txt"), "eula=true")
-                .expect("Failed to write EULA file");
-        } else {
-            println!("You must accept the EULA to start the server. Exiting...");
-            std::process::exit(0);
-        }
+    run_server(&server_dir);
 
-        std::fs::write(
-            expand_path(&server_dir).join("server.properties"),
-            format!("server-port={}", server_port),
-        )
-        .expect("Failed to write server properties file");
-
-        let mut cmd = std::process::Command::new("java");
-        cmd.arg("-Xmx1024M")
-            .arg("-Xms1024M")
-            .arg("-jar")
-            .arg("server.jar")
-            .arg("nogui")
-            .current_dir(expand_path(&server_dir))
-            .spawn()
-            .expect("Failed to start the server");
+    if confirm("Do you accept EULA?").interact().unwrap() {
+        configure_server(format!("{}/eula.txt", server_dir.to_str().unwrap()).as_str(), "eula", "true");
+    } else {
+        println!("You must accept the EULA to start the server. Exiting...");
+        std::process::exit(0);
     }
+
+    configure_server(format!("{}/server.properties", server_dir.to_str().unwrap()).as_str(), "server-port", server_port.to_string().as_str());
 
     let _ = outro("You're all set!");
 
     println!("Server Name: {}", server_name);
-    println!("Server Directory: {}", server_dir);
+    println!("Server Directory: {}", server_dir.display());
     println!("Server Port: {}", server_port);
 }
 
-fn download(url: &str, dir: &str, filename: &str) -> Result<(), Box<dyn Error>> {
+fn run_server(dir: &PathBuf) -> std::io::Result<()> {
+    let spinner = spinner();
+    spinner.start("Setting up server...");
+    let mut cmd = Command::new("java")
+        .arg("-jar")
+        .arg("server.jar")
+        .arg("nogui")
+        .current_dir(dir)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()?;
+
+    cmd.wait()?;
+    spinner.stop("");
+    Ok(())
+}
+
+fn configure_server(filename: &str, name: &str, value: &str) {
+    let file = File::open(filename).unwrap();
+    let reader = BufReader::new(file);
+
+    for (index, line) in reader.lines().enumerate() {   
+        let line = line.unwrap();     
+        // Trim whitespace to handle "  name=" cases
+        let trimmed = line.trim_start();
+        
+        if trimmed.starts_with(format!("{}=", name).as_str()) {
+            update_line_at_index(PathBuf::from(filename), index, format!("{}={}", name, value).as_str()).unwrap();
+            break;
+        }
+    }
+}
+
+fn update_line_at_index(
+    path: PathBuf,          // Now takes ownership of a PathBuf
+    target_index: usize, 
+    new_content: &str
+) -> std::io::Result<()> {
+    // 1. Create the temp path
+    // .with_extension returns a new PathBuf
+    let temp_path = path.with_extension("tmp");
+
+    let input = File::open(&path)?;
+    let buffered_input = BufReader::new(input);
+
+    let output = File::create(&temp_path)?;
+    let mut buffered_output = BufWriter::new(output);
+
+    for (current_index, line) in buffered_input.lines().enumerate() {
+        let line = line?;
+        
+        if current_index == target_index {
+            writeln!(buffered_output, "{}", new_content)?;
+        } else {
+            writeln!(buffered_output, "{}", line)?;
+        }
+    }
+
+    buffered_output.flush()?;
+
+    // 2. Atomic swap
+    // We pass the paths by reference here
+    fs::rename(&temp_path, &path)?;
+
+    Ok(())
+}
+
+fn download_url(url: &str, dir: &PathBuf, filename: &str) -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let mut res = client.get(url).send()?;
 
@@ -136,10 +185,9 @@ fn download(url: &str, dir: &str, filename: &str) -> Result<(), Box<dyn Error>> 
 
     let total_size = res.content_length().ok_or("Failed to get content length")?;
 
-    let directory_path = expand_path(dir);
-    create_dir_all(&directory_path)?;
+    create_dir_all(&dir)?;
 
-    let file_path = directory_path.join(filename);
+    let file_path = dir.join(filename);
     let mut file = File::create(&file_path)?;
 
     let pb = progress_bar(total_size);
@@ -271,5 +319,24 @@ fn get_versions(platform: &str) -> Result<Vec<String>, String> {
         Ok(versions)
     } else {
         Err("Unknown platform".to_string())
+    }
+}
+
+fn expand_path(path: &str) -> Result<PathBuf, String> {
+    let p: PathBuf;
+    if path.starts_with('~') {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        p = PathBuf::from(home).join(path.trim_start_matches('~').trim_start_matches('/'));
+    } else {
+        p = PathBuf::from(path);
+    }
+    if p.exists() {
+        if p.is_dir() {
+            Ok(p.canonicalize().unwrap_or(p))
+        } else {
+            Err("The path exists but is not a directory".to_string())
+        }
+    } else {
+        Err("The path does not exist. Please enter a valid directory path.".to_string())
     }
 }

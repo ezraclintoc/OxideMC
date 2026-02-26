@@ -68,13 +68,19 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
-          merge-multiple: false
+
+      - name: Prepare binaries
+        run: |
+          cd artifacts
+          cp oxidemc-linux-x86_64/oxidemc ../oxidemc-linux-x86_64
+          cp oxidemc-macos/oxidemc ../oxidemc-macos
+          cp oxidemc-windows/oxidemc.exe ../oxidemc-windows.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            artifacts/oxidemc-linux-x86_64/oxidemc
-            artifacts/oxidemc-macos/oxidemc
-            artifacts/oxidemc-windows/oxidemc.exe
+            oxidemc-linux-x86_64
+            oxidemc-macos
+            oxidemc-windows.exe
           generate_release_notes: true
