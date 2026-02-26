@@ -17,22 +17,11 @@ jobs:
       - name: Build x86_64
         run: cargo build --release --target x86_64-unknown-linux-gnu --locked
 
-      - name: Build aarch64
-        run: |
-          rustup target add aarch64-unknown-linux-gnu
-          cargo build --release --target aarch64-unknown-linux-gnu --locked
-
       - name: Upload x86_64
         uses: actions/upload-artifact@v4
         with:
           name: oxidemc-linux-x86_64
           path: target/x86_64-unknown-linux-gnu/release/oxidemc
-
-      - name: Upload aarch64
-        uses: actions/upload-artifact@v4
-        with:
-          name: oxidemc-linux-aarch64
-          path: target/aarch64-unknown-linux-gnu/release/oxidemc
 
   build-macos:
     runs-on: macos-latest
@@ -42,25 +31,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build x86_64
-        run: cargo build --release --target x86_64-apple-darwin --locked
+      - name: Build (native)
+        run: cargo build --release --locked
 
-      - name: Build aarch64
-        run: |
-          rustup target add aarch64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin --locked
-
-      - name: Upload x86_64
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: oxidemc-macos-x86_64
-          path: target/x86_64-apple-darwin/release/oxidemc
-
-      - name: Upload aarch64
-        uses: actions/upload-artifact@v4
-        with:
-          name: oxidemc-macos-aarch64
-          path: target/aarch64-apple-darwin/release/oxidemc
+          name: oxidemc-macos
+          path: target/release/oxidemc
 
   build-windows:
     runs-on: windows-latest
@@ -70,25 +48,14 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build x86_64
-        run: cargo build --release --target x86_64-pc-windows-msvc --locked
+      - name: Build (native)
+        run: cargo build --release --locked
 
-      - name: Build aarch64
-        run: |
-          rustup target add aarch64-pc-windows-msvc
-          cargo build --release --target aarch64-pc-windows-msvc --locked
-
-      - name: Upload x86_64
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: oxidemc-windows-x86_64
-          path: target/x86_64-pc-windows-msvc/release/oxidemc.exe
-
-      - name: Upload aarch64
-        uses: actions/upload-artifact@v4
-        with:
-          name: oxidemc-windows-aarch64
-          path: target/aarch64-pc-windows-msvc/release/oxidemc.exe
+          name: oxidemc-windows
+          path: target/release/oxidemc.exe
 
   release:
     needs: [build-linux, build-macos, build-windows]
@@ -103,27 +70,11 @@ jobs:
           path: artifacts
           merge-multiple: false
 
-      - name: Rename and list
-        shell: bash
-        run: |
-          cd artifacts
-          mv oxidemc-linux-x86_64/oxidemc ../oxidemc-linux-x86_64
-          mv oxidemc-linux-aarch64/oxidemc ../oxidemc-linux-aarch64
-          mv oxidemc-macos-x86_64/oxidemc ../oxidemc-macos-x86_64
-          mv oxidemc-macos-aarch64/oxidemc ../oxidemc-macos-aarch64
-          mv oxidemc-windows-x86_64/oxidemc.exe ../oxidemc-windows-x86_64.exe
-          mv oxidemc-windows-aarch64/oxidemc.exe ../oxidemc-windows-aarch64.exe
-          cd ..
-          ls -la
-
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            oxidemc-linux-x86_64
-            oxidemc-linux-aarch64
-            oxidemc-macos-x86_64
-            oxidemc-macos-aarch64
-            oxidemc-windows-x86_64.exe
-            oxidemc-windows-aarch64.exe
+            artifacts/oxidemc-linux-x86_64/oxidemc
+            artifacts/oxidemc-macos/oxidemc
+            artifacts/oxidemc-windows/oxidemc.exe
           generate_release_notes: true

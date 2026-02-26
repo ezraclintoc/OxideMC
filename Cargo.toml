@@ -1,6 +1,6 @@
 [package]
 name = "OxideMC"
-version = "0.0.6"
+version = "0.0.4"
 edition = "2021"
 
 [[bin]]
