@@ -4,11 +4,7 @@ version = 4
 
 [[package]]
 name = "OxideMC"
-<<<<<<< HEAD
-version = "0.0.8"
-=======
 version = "0.0.1"
->>>>>>> 70f0ac6 (Added server property configuration. Added EULA agreement. Added Nightly Releases.)
 dependencies = [
  "cliclack",
  "dirs",

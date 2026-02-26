@@ -81,8 +81,8 @@ cargo build --release
 - [x] Path expansion (~, ./, ../)
 - [x] Server start after download with EULA
 - [ ] Add more server configuration options (RAM, JVM flags)
-- [ ] Server port configuration
-- [ ] Server name configuration
+- [x] Server port configuration
+- [x] Server name configuration
 
 ### Mod Management
 - [ ] Create start script (cross-platform)
