@@ -1,15 +1,20 @@
 use cliclack::{confirm, input, intro, outro, progress_bar, select};
-use futures_util::StreamExt;
-use reqwest::{blocking::get, Client};
+use reqwest::blocking::Client;
 use serde_json::Value;
 use std::error::Error;
 use std::fs::{create_dir_all, File};
+use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 
 fn expand_path(path: &str) -> PathBuf {
-    let expanded = shellexpand::full(path).unwrap().into_owned();
-    let p = PathBuf::from(&expanded);
+    let p = if path.starts_with('~') {
+        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        PathBuf::from(home).join(path.trim_start_matches('~').trim_start_matches('/'))
+    } else {
+        PathBuf::from(path)
+    };
+
     if p.is_relative() {
         std::env::current_dir()
             .unwrap_or_else(|_| PathBuf::from("."))
@@ -86,19 +91,22 @@ fn main() {
         .unwrap();
 
     let jar_url = get_jar_url(&platform, &version);
-    let _ = download(&jar_url, &server_dir, &"server.jar".to_string());
+    let _ = download(&jar_url, &server_dir, "server.jar");
 
     if start_after_download {
         if confirm("Do you accept EULA?").interact().unwrap() {
-            std::fs::write(
-                expand_path(&server_dir).join("eula.txt"),
-                "eula=true",
-            )
-            .expect("Failed to write EULA file");
+            std::fs::write(expand_path(&server_dir).join("eula.txt"), "eula=true")
+                .expect("Failed to write EULA file");
         } else {
             println!("You must accept the EULA to start the server. Exiting...");
             std::process::exit(0);
         }
+
+        std::fs::write(
+            expand_path(&server_dir).join("server.properties"),
+            format!("server-port={}", server_port),
+        )
+        .expect("Failed to write server properties file");
 
         let mut cmd = std::process::Command::new("java");
         cmd.arg("-Xmx1024M")
@@ -118,60 +126,52 @@ fn main() {
     println!("Server Port: {}", server_port);
 }
 
-#[tokio::main]
-async fn download(url: &str, dir: &str, filename: &str) -> Result<(), Box<dyn Error>> {
+fn download(url: &str, dir: &str, filename: &str) -> Result<(), Box<dyn Error>> {
     let client = Client::new();
-    let res = client.get(url).send().await?;
+    let mut res = client.get(url).send()?;
 
-    // 1. Check response status before proceeding
     if !res.status().is_success() {
         return Err(format!("Server returned error: {}", res.status()).into());
     }
 
     let total_size = res.content_length().ok_or("Failed to get content length")?;
 
-    // 2. Robust Path Handling
     let directory_path = expand_path(dir);
-
-    // Create the directory if it's missing
     create_dir_all(&directory_path)?;
 
     let file_path = directory_path.join(filename);
-
-    // 3. File Setup
     let mut file = File::create(&file_path)?;
-    let mut stream = res.bytes_stream();
-    let mut downloaded: u64 = 0;
 
-    // 4. Progress Bar Setup
     let pb = progress_bar(total_size);
     pb.start(format!("Downloading {}", filename));
 
-    while let Some(item) = stream.next().await {
-        // Concisely handle the stream result
-        let chunk = item?;
+    let mut downloaded: u64 = 0;
+    let mut buffer = vec![0u8; 8192];
 
-        file.write_all(&chunk)?;
-
-        downloaded += chunk.len() as u64;
+    while let Ok(bytes_read) = res.read(&mut buffer) {
+        if bytes_read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..bytes_read])?;
+        downloaded += bytes_read as u64;
         pb.set_message(format!(
             "{:.2} MB / {:.2} MB",
             downloaded as f64 / 1_048_576.0,
             total_size as f64 / 1_048_576.0
         ));
-        pb.inc(chunk.len() as u64);
+        pb.inc(bytes_read as u64);
     }
 
     pb.stop(format!("Finished downloading to {:?}", file_path.display()));
     Ok(())
 }
 
-fn get_jar_url(platform: &str, version: &String) -> String {
+fn get_jar_url(platform: &str, version: &str) -> String {
     if platform == "Vanilla" {
         todo!("Vanilla not impllemented yet")
     } else if platform == "Paper" {
         let json: Value = serde_json::from_str(
-            &get(&format!(
+            &reqwest::blocking::get(&format!(
                 "https://fill.papermc.io/v3/projects/paper/versions/{}/builds/latest",
                 version
             ))
@@ -180,8 +180,7 @@ fn get_jar_url(platform: &str, version: &String) -> String {
             .unwrap(),
         )
         .unwrap();
-        return json
-            .get("downloads")
+        json.get("downloads")
             .unwrap()
             .get("server:default")
             .unwrap()
@@ -189,10 +188,10 @@ fn get_jar_url(platform: &str, version: &String) -> String {
             .unwrap()
             .to_string()
             .trim_matches('"')
-            .to_string();
+            .to_string()
     } else if platform == "Fabric" {
         let json: Value = serde_json::from_str(
-            &get(&format!(
+            &reqwest::blocking::get(&format!(
                 "https://meta.fabricmc.net/v2/versions/loader/{}",
                 version
             ))
@@ -225,14 +224,14 @@ fn convert_to_items(input: &[String]) -> Vec<(String, String, String)> {
     input
         .iter()
         .map(|v| (v.clone(), v.clone(), String::new()))
-        .collect() // This puts the items into a Vec on the heap
+        .collect()
 }
 
 fn get_versions(platform: &str) -> Result<Vec<String>, String> {
     if platform == "Vanilla" {
         todo!("Vanilla not impllemented yet")
     } else if platform == "Paper" {
-        let json = get("https://api.papermc.io/v2/projects/paper")
+        let json = reqwest::blocking::get("https://api.papermc.io/v2/projects/paper")
             .unwrap()
             .text()
             .unwrap();
@@ -249,7 +248,7 @@ fn get_versions(platform: &str) -> Result<Vec<String>, String> {
         versions.reverse();
         Ok(versions)
     } else if platform == "Fabric" {
-        let json = get("https://meta.fabricmc.net/v2/versions")
+        let json = reqwest::blocking::get("https://meta.fabricmc.net/v2/versions")
             .unwrap()
             .text()
             .unwrap();
