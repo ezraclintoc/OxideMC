@@ -1,37 +1,30 @@
-use cliclack::{confirm, input, intro, outro, progress_bar, spinner, select};
+use cliclack::{confirm, input, intro, outro, progress_bar, select, spinner};
 use reqwest::blocking::Client;
-use reqwest::StatusCode;
 use serde_json::Value;
+use std::env;
 use std::error::Error;
 use std::fs::{self, create_dir_all, File};
-use std::io::{self, BufRead, BufReader, Read, Write, BufWriter};
-use std::path::{PathBuf};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-fn main() {
-    let _ = intro("Setting up your Minecraft Server");
+struct OxideMC {
+    name: String,
+    dir: PathBuf,
+    platform: String,
+    version: String,
+}
 
-    let setup_complexity: String = select("How do you want to set up your server?")
-        .item(
-            "easy",
-            "Easy (Recommended)",
-            "Minimal configuration, just the basics!",
-        )
-        .item("advanced", "Advanced", "More configuration options!")
-        .interact()
-        .unwrap()
-        .to_string();
+impl OxideMC {
+    pub fn create_with_interact() -> Result<Self, ()> {
+        let _ = intro("Setting up your Minecraft Server");
 
-    let server_name: String = input("What do you want to name your server?")
-        .default_input("minecraft-server")
-        .required(true)
-        .interact()
-        .unwrap();
+        let name: String = input("What do you want to name your server?")
+            .default_input("minecraft-server")
+            .required(true)
+            .interact()
+            .unwrap();
 
-    let server_dir: PathBuf;
-    let server_port: u16;
-
-    if setup_complexity != "easy" {
         let input_dir: String = input("Where do you want to save your server?")
             .default_input("~/minecraft_server")
             .required(true)
@@ -47,232 +40,119 @@ fn main() {
             .unwrap();
 
         let slash = if input_dir.ends_with('/') { "" } else { "/" };
-        server_dir = expand_path(format!("{}{}", input_dir.as_str(), slash).as_str())
+        let dir = expand_path(format!("{}{}", input_dir.as_str(), slash).as_str())
             .unwrap()
-            .join(server_name.as_str());
+            .join(name.as_str());
 
-        println!("Server directory set to: {}", server_dir.display());
-
-        server_port = input("Which port do you want to use?")
-            .default_input("25565")
-            .required(true)
-            .validate(|input: &String| {
-                if input.parse::<u16>().is_ok() {
-                    Ok(())
-                } else {
-                    Err("Please enter a valid port number (0-65535)".to_string())
-                }
-            })
+        let platform = select("Which software do you want to use?")
+            .item("Vanilla", "Vanilla", "")
+            .item(
+                "Paper",
+                "Paper (Recommended)",
+                "Has plugins support and better performance!",
+            )
+            .item("Fabric", "Fabric", "Has mods support!")
             .interact()
-            .unwrap();
-    } else {
-        server_dir = expand_path(".").unwrap().join(server_name.as_str());
-        println!("Server directory set to: {}", server_dir.display());
-        server_port = 25565;
-    }
-
-    let platform = select("Which software do you want to use?")
-        .item("Vanilla", "Vanilla", "")
-        .item(
-            "Paper",
-            "Paper (Recommended)",
-            "Has plugins support and better performance!",
-        )
-        .item("Fabric", "Fabric", "Has mods support!")
-        .interact()
-        .unwrap();
-
-    let version = select("Which version do you want to use?")
-        .items(&convert_to_items(&get_versions(&platform).unwrap()))
-        .interact()
-        .unwrap();
-
-    let jar_url = get_jar_url(&platform, &version);
-    let _ = download_url(&jar_url, &server_dir, "server.jar");
-
-    run_server(&server_dir);
-
-    if confirm("Do you accept EULA?").interact().unwrap() {
-        configure_server(format!("{}/eula.txt", server_dir.to_str().unwrap()).as_str(), "eula", "true");
-    } else {
-        println!("You must accept the EULA to start the server. Exiting...");
-        std::process::exit(0);
-    }
-
-    configure_server(format!("{}/server.properties", server_dir.to_str().unwrap()).as_str(), "server-port", server_port.to_string().as_str());
-
-    let _ = outro("You're all set!");
-
-    println!("Server Name: {}", server_name);
-    println!("Server Directory: {}", server_dir.display());
-    println!("Server Port: {}", server_port);
-}
-
-fn run_server(dir: &PathBuf) -> std::io::Result<()> {
-    let spinner = spinner();
-    spinner.start("Setting up server...");
-    let mut cmd = Command::new("java")
-        .arg("-jar")
-        .arg("server.jar")
-        .arg("nogui")
-        .current_dir(dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-
-    cmd.wait()?;
-    spinner.stop("");
-    Ok(())
-}
-
-fn configure_server(filename: &str, name: &str, value: &str) {
-    let file = File::open(filename).unwrap();
-    let reader = BufReader::new(file);
-
-    for (index, line) in reader.lines().enumerate() {   
-        let line = line.unwrap();     
-        // Trim whitespace to handle "  name=" cases
-        let trimmed = line.trim_start();
-        
-        if trimmed.starts_with(format!("{}=", name).as_str()) {
-            update_line_at_index(PathBuf::from(filename), index, format!("{}={}", name, value).as_str()).unwrap();
-            break;
-        }
-    }
-}
-
-fn update_line_at_index(
-    path: PathBuf,          // Now takes ownership of a PathBuf
-    target_index: usize, 
-    new_content: &str
-) -> std::io::Result<()> {
-    // 1. Create the temp path
-    // .with_extension returns a new PathBuf
-    let temp_path = path.with_extension("tmp");
-
-    let input = File::open(&path)?;
-    let buffered_input = BufReader::new(input);
-
-    let output = File::create(&temp_path)?;
-    let mut buffered_output = BufWriter::new(output);
-
-    for (current_index, line) in buffered_input.lines().enumerate() {
-        let line = line?;
-        
-        if current_index == target_index {
-            writeln!(buffered_output, "{}", new_content)?;
-        } else {
-            writeln!(buffered_output, "{}", line)?;
-        }
-    }
-
-    buffered_output.flush()?;
-
-    // 2. Atomic swap
-    // We pass the paths by reference here
-    fs::rename(&temp_path, &path)?;
-
-    Ok(())
-}
-
-fn download_url(url: &str, dir: &PathBuf, filename: &str) -> Result<(), Box<dyn Error>> {
-    let client = Client::new();
-    let mut res = client.get(url).send()?;
-
-    if !res.status().is_success() {
-        return Err(format!("Server returned error: {}", res.status()).into());
-    }
-
-    let total_size = res.content_length().ok_or("Failed to get content length")?;
-
-    create_dir_all(&dir)?;
-
-    let file_path = dir.join(filename);
-    let mut file = File::create(&file_path)?;
-
-    let pb = progress_bar(total_size);
-    pb.start(format!("Downloading {}", filename));
-
-    let mut downloaded: u64 = 0;
-    let mut buffer = vec![0u8; 8192];
-
-    while let Ok(bytes_read) = res.read(&mut buffer) {
-        if bytes_read == 0 {
-            break;
-        }
-        file.write_all(&buffer[..bytes_read])?;
-        downloaded += bytes_read as u64;
-        pb.set_message(format!(
-            "{:.2} MB / {:.2} MB",
-            downloaded as f64 / 1_048_576.0,
-            total_size as f64 / 1_048_576.0
-        ));
-        pb.inc(bytes_read as u64);
-    }
-
-    pb.stop(format!("Finished downloading to {:?}", file_path.display()));
-    Ok(())
-}
-
-fn get_jar_url(platform: &str, version: &str) -> String {
-    if platform == "Vanilla" {
-        todo!("Vanilla not impllemented yet")
-    } else if platform == "Paper" {
-        let json: Value = serde_json::from_str(
-            &reqwest::blocking::get(&format!(
-                "https://fill.papermc.io/v3/projects/paper/versions/{}/builds/latest",
-                version
-            ))
             .unwrap()
-            .text()
-            .unwrap(),
-        )
-        .unwrap();
-        json.get("downloads")
-            .unwrap()
-            .get("server:default")
-            .unwrap()
-            .get("url")
-            .unwrap()
-            .to_string()
-            .trim_matches('"')
-            .to_string()
-    } else if platform == "Fabric" {
-        let json: Value = serde_json::from_str(
-            &reqwest::blocking::get(&format!(
-                "https://meta.fabricmc.net/v2/versions/loader/{}",
-                version
-            ))
-            .unwrap()
-            .text()
-            .unwrap(),
-        )
-        .unwrap();
-        let fabric_version = json.as_array().unwrap()[0]
-            .get("loader")
-            .unwrap()
-            .get("version")
-            .unwrap()
-            .to_string()
-            .trim_matches('"')
             .to_string();
 
-        let fabric_url: String = format!(
-            "https://meta.fabricmc.net/v2/versions/loader/{}/{}/1.1.0/server/jar",
-            version, fabric_version
-        );
+        let version = select("Which version do you want to use?")
+            .items(&convert_to_items(&get_versions(&platform).unwrap()))
+            .interact()
+            .unwrap();
 
-        fabric_url
-    } else {
-        panic!("Unknown platform");
+        let jar_url = get_jar_url(&platform, &version).unwrap();
+        let _ = download_url(&jar_url, &dir, "server.jar");
+
+        let out = OxideMC {
+            name,
+            dir: dir.clone(),
+            platform,
+            version,
+        };
+
+        let _ = out.run();
+
+        if confirm("Do you accept EULA?").interact().unwrap() {
+            let _ = configure_file(
+                &dir,
+                "eula.txt",
+                "eula",
+                "true",
+            );
+        } else {
+            eprintln!("You must accept the EULA to start the server. Exiting...");
+            std::process::exit(0);
+        }
+
+        let _ = outro("You're all set!");
+
+        Ok(out)
+    }
+
+    pub fn create(
+        name: String,
+        dir: PathBuf,
+        platform: String,
+        version: String,
+    ) -> Self {
+        OxideMC {
+            name,
+            dir,
+            platform,
+            version,
+        }
+    }
+
+    pub fn create_from_existing(dir: &PathBuf) {
+        todo!("Create from Existing at {}", dir.display());
+    }
+
+    pub fn configure() {
+        todo!("Configuration hasn't been implemented");
+    }
+
+    pub fn run(&self) -> Result<(), ()> {
+        let spinner = spinner();
+        spinner.start("Setting up server...");
+        let mut cmd = Command::new("java")
+            .arg("-jar")
+            .arg("server.jar")
+            .arg("nogui")
+            .current_dir(&self.dir)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+
+        cmd.wait().unwrap();
+        spinner.stop("");
+        Ok(())
     }
 }
 
-fn convert_to_items(input: &[String]) -> Vec<(String, String, String)> {
-    input
-        .iter()
-        .map(|v| (v.clone(), v.clone(), String::new()))
-        .collect()
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    let action = if args.len() > 1 {
+        match args[1].to_lowercase().as_str() {
+            "install" | "--install" | "i" | "-i" => "install".to_string(),
+            "configure" | "--configure" | "c" | "-c" => "configure".to_string(),
+            _ => todo!("WHAT?"),
+        }
+    } else {
+        select("Do you want to install a new server or configure an existing one?")
+            .item("install", "Install a New Server", "")
+            .item("configure", "Configure An Exisiting Server", "")
+            .interact()
+            .unwrap()
+            .to_string()
+    };
+
+    if action == "install" {
+        let _oxide = OxideMC::create_with_interact();
+    } else if action == "configure" {
+        todo!("Configuration Menu")
+    }
 }
 
 fn get_versions(platform: &str) -> Result<Vec<String>, String> {
@@ -320,6 +200,137 @@ fn get_versions(platform: &str) -> Result<Vec<String>, String> {
     } else {
         Err("Unknown platform".to_string())
     }
+}
+
+fn configure_file(dir: &PathBuf, filename: &str, name: &str, value: &str) -> Result<(), ()> {
+    let path = PathBuf::from(dir.to_str().unwrap().to_string() + "/" + filename);
+    let input = File::open(&path).unwrap();
+    let buffered_input = BufReader::new(input);
+
+    let temp_path = path.with_extension("tmp");
+
+    let output = File::create(&temp_path).unwrap();
+    let mut buffered_output = BufWriter::new(output);
+
+    for line in buffered_input.lines() {
+        let line = line.unwrap();
+        // Trim whitespace to handle "  name=" cases
+        let trimmed = line.trim_start();
+
+        if trimmed.starts_with(format!("{}=", name).as_str()) {
+            writeln!(buffered_output, "{}={}", name, value);
+        } else {
+            writeln!(buffered_output, "{}", line);
+        }
+    }
+    buffered_output.flush();
+
+    fs::rename(&temp_path, &path);
+
+    Ok(())
+}
+
+fn get_jar_url(platform: &str, version: &str) -> Result<String, String> {
+    if platform == "Vanilla" {
+        todo!("Vanilla not impllemented yet")
+    } else if platform == "Paper" {
+        let json: Value = serde_json::from_str(
+            &reqwest::blocking::get(&format!(
+                "https://fill.papermc.io/v3/projects/paper/versions/{}/builds/latest",
+                version
+            ))
+            .unwrap()
+            .text()
+            .unwrap(),
+        )
+        .unwrap();
+        Ok(json
+            .get("downloads")
+            .unwrap()
+            .get("server:default")
+            .unwrap()
+            .get("url")
+            .unwrap()
+            .to_string()
+            .trim_matches('"')
+            .to_string())
+    } else if platform == "Fabric" {
+        let json: Value = serde_json::from_str(
+            &reqwest::blocking::get(&format!(
+                "https://meta.fabricmc.net/v2/versions/loader/{}",
+                version
+            ))
+            .unwrap()
+            .text()
+            .unwrap(),
+        )
+        .unwrap();
+        let fabric_version = json.as_array().unwrap()[0]
+            .get("loader")
+            .unwrap()
+            .get("version")
+            .unwrap()
+            .to_string()
+            .trim_matches('"')
+            .to_string();
+
+        let fabric_url: String = format!(
+            "https://meta.fabricmc.net/v2/versions/loader/{}/{}/1.1.0/server/jar",
+            version, fabric_version
+        );
+
+        Ok(fabric_url)
+    } else if platform == "Forge" {
+        todo!("Forge not implemented");
+    } else {
+        Err("Unkonwn Platform".to_string())
+    }
+}
+
+fn download_url(url: &str, dir: &PathBuf, filename: &str) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let mut res = client.get(url).send()?;
+
+    if !res.status().is_success() {
+        return Err(format!("Server returned error: {}", res.status()).into());
+    }
+
+    let total_size = res.content_length().ok_or("Failed to get content length")?;
+
+    create_dir_all(&dir)?;
+
+    let file_path = dir.join(filename);
+    let mut file = File::create(&file_path)?;
+
+    let pb = progress_bar(total_size);
+    pb.start(format!("Downloading {}", filename));
+
+    let mut downloaded: u64 = 0;
+    let mut buffer = vec![0u8; 8192];
+
+    while let Ok(bytes_read) = res.read(&mut buffer) {
+        if bytes_read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..bytes_read])?;
+        downloaded += bytes_read as u64;
+        pb.set_message(format!(
+            "{:.2} MB / {:.2} MB",
+            downloaded as f64 / 1_048_576.0,
+            total_size as f64 / 1_048_576.0
+        ));
+        pb.inc(bytes_read as u64);
+    }
+
+    pb.stop(format!("Finished downloading to {:?}", file_path.display()));
+    Ok(())
+}
+
+fn convert_to_items(input: &[String]) -> Vec<(String, String, String)> {
+    input
+        .iter()
+        .map(|v| (v.clone(), v.clone(), String::new()))
+        .collect()
 }
 
 fn expand_path(path: &str) -> Result<PathBuf, String> {
