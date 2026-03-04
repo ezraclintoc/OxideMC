@@ -1,9 +1,9 @@
 # 🚀 OxideMC
 
+
 <div align="center">
 
-<!-- TODO: Add project logo (e.g., an icon related to Minecraft or Rust) -->
-<img src="logo.png" align="center" width="150" style="margin: 20px; border-radius: 50%;">
+<img src="logo.png" align="center" width="150" style="margin: 20px; border-radius: 50%;" alt="OxideMC Logo">
 
 [![GitHub stars](https://img.shields.io/github/stars/ezraclintoc/OxideMC?style=for-the-badge)](https://github.com/ezraclintoc/OxideMC/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/ezraclintoc/OxideMC?style=for-the-badge)](https://github.com/ezraclintoc/OxideMC/network)
@@ -70,7 +70,7 @@ cargo build --release
 
 ### Server Types
 - [x] Add Paper server support
-- [ ] Add Vanilla server support
+- [x] Add Vanilla server support
 - [x] Add Fabric server support
 - [ ] Add Forge server support
 

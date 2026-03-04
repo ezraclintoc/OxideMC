@@ -9,7 +9,6 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 struct OxideMC {
-    name: String,
     dir: PathBuf,
     platform: String,
     version: String,
@@ -65,7 +64,6 @@ impl OxideMC {
         let _ = download_url(&jar_url, &dir, "server.jar");
 
         let out = OxideMC {
-            name,
             dir: dir.clone(),
             platform,
             version,
@@ -74,12 +72,7 @@ impl OxideMC {
         let _ = out.run();
 
         if confirm("Do you accept EULA?").interact().unwrap() {
-            let _ = configure_file(
-                &dir,
-                "eula.txt",
-                "eula",
-                "true",
-            );
+            let _ = configure_file(&dir, "eula.txt", "eula", "true");
         } else {
             eprintln!("You must accept the EULA to start the server. Exiting...");
             std::process::exit(0);
@@ -90,26 +83,55 @@ impl OxideMC {
         Ok(out)
     }
 
-    pub fn create(
-        name: String,
-        dir: PathBuf,
-        platform: String,
-        version: String,
-    ) -> Self {
+    pub fn create(dir: PathBuf, platform: String, version: String) -> Self {
+        let jar_url = get_jar_url(&platform, &version).unwrap();
+        let _ = download_url(&jar_url, &dir, "server.jar");
+
+        let _ = configure_file(&dir, "eula.txt", "eula", "true");
+
         OxideMC {
-            name,
             dir,
             platform,
             version,
         }
     }
 
-    pub fn create_from_existing(dir: &PathBuf) {
+    pub fn create_from_existing(dir: &PathBuf) -> Result<Self, ()> {
         todo!("Create from Existing at {}", dir.display());
     }
 
-    pub fn configure() {
-        todo!("Configuration hasn't been implemented");
+    pub fn configure(&self) {
+        let mut page: &str = "main";
+
+        loop {
+            match page {
+                "main" => {
+                    page = select("What do you want to configure?")
+                        .item("Game", "Game Settings", "")
+                        .item(
+                            "mod",
+                            format!(
+                                "{}Datapacks/Resource Packs",
+                                match self.platform.as_str() {
+                                    "Vanilla" => "",
+                                    "Paper" => "Plugin/",
+                                    "Fabric" => "Mod/",
+                                    "Forge" => "Mod/",
+                                    _ => "",
+                                }
+                            ),
+                            "",
+                        )
+                        .item("mods", "Mods", "")
+                        .interact()
+                        .unwrap();
+                }
+                _ => {
+                    println!("This page is not implemented yet.");
+                    page = "main";
+                }
+            }
+        }
     }
 
     pub fn run(&self) -> Result<(), ()> {
@@ -157,7 +179,35 @@ fn main() {
 
 fn get_versions(platform: &str) -> Result<Vec<String>, String> {
     if platform == "Vanilla" {
-        todo!("Vanilla not impllemented yet")
+        let json_text = reqwest::blocking::get(
+        "https://raw.githubusercontent.com/liebki/MinecraftServerForkDownloads/refs/heads/main/release_vanilla_downloads.json"
+        )
+        .map_err(|e| format!("Failed to fetch vanilla downloads: {}", e))?
+        .text()
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        let json: serde_json::Value =
+            serde_json::from_str(&json_text).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+        let mut versions: Vec<String> = json
+            .get("server_available")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| "Missing or invalid 'server_available' key".to_string())?
+            .keys()
+            .cloned()
+            .collect();
+
+        if versions.is_empty() {
+            return Err("No Vanilla versions found".to_string());
+        }
+
+        versions.sort_by(|a, b| {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split('.').filter_map(|n| n.parse().ok()).collect()
+    };
+    parse(b).cmp(&parse(a))
+});
+        Ok(versions)
     } else if platform == "Paper" {
         let json = reqwest::blocking::get("https://api.papermc.io/v2/projects/paper")
             .unwrap()
@@ -218,21 +268,35 @@ fn configure_file(dir: &PathBuf, filename: &str, name: &str, value: &str) -> Res
         let trimmed = line.trim_start();
 
         if trimmed.starts_with(format!("{}=", name).as_str()) {
-            writeln!(buffered_output, "{}={}", name, value);
+            writeln!(buffered_output, "{}={}", name, value).unwrap();
         } else {
-            writeln!(buffered_output, "{}", line);
+            writeln!(buffered_output, "{}", line).unwrap();
         }
     }
-    buffered_output.flush();
+    buffered_output.flush().unwrap();
 
-    fs::rename(&temp_path, &path);
+    fs::rename(&temp_path, &path).unwrap();
 
     Ok(())
 }
 
 fn get_jar_url(platform: &str, version: &str) -> Result<String, String> {
     if platform == "Vanilla" {
-        todo!("Vanilla not impllemented yet")
+        let json = reqwest::blocking::get(
+            "https://raw.githubusercontent.com/liebki/MinecraftServerForkDownloads/refs/heads/main/release_vanilla_downloads.json"
+        )
+        .map_err(|e| format!("Failed to fetch vanilla downloads: {}", e))?
+        .text()
+        .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        let json: serde_json::Value =
+            serde_json::from_str(&json).map_err(|e| format!("Failed to parse JSON: {}", e))?;
+
+        json.get("server_available")
+            .and_then(|v| v.get(version))
+            .and_then(|u| u.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| format!("No download URL found for Vanilla {}", version))
     } else if platform == "Paper" {
         let json: Value = serde_json::from_str(
             &reqwest::blocking::get(&format!(
