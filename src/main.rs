@@ -83,7 +83,7 @@ impl OxideMC {
         Ok(out)
     }
 
-    pub fn create(dir: PathBuf, platform: String, version: String) -> Self {
+    pub fn _create(dir: PathBuf, platform: String, version: String) -> Self {
         let jar_url = get_jar_url(&platform, &version).unwrap();
         let _ = download_url(&jar_url, &dir, "server.jar");
 
@@ -280,7 +280,7 @@ fn main() {
         log::info(format!(
             "Server found: {} {}",
             oxide.platform, oxide.version
-        ));
+        )).unwrap();
         let _ = oxide.configure();
     }
 }
@@ -542,6 +542,4 @@ fn get_platform(dir: &PathBuf) -> Result<String, String> {
     } else {
         return Ok("Vanilla".to_string());
     }
-
-    Err("".to_string())
 }

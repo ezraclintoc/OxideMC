@@ -10,7 +10,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/ezraclintoc/OxideMC?style=for-the-badge)](https://github.com/ezraclintoc/OxideMC/issues)
 [![GitHub license](https://img.shields.io/github/license/ezraclintoc/OxideMC?style=for-the-badge)](LICENSE)
 
-**A high-performance, Rust-powered Minecraft server setup tool**
+#### A high-performance, Rust-powered Minecraft server setup tool
 
 <!-- TODO: Add live demo link if applicable (e.g., a hosted server) -->
 <!-- TODO: Add documentation link if applicable -->
@@ -43,6 +43,7 @@ OxideMC is a project aimed at helping people create minecraft server faster and 
 Follow these steps to get OxideMC up and running on your local machine.
 
 ### Option 1: Install Script (Recommended)
+
 > ⚠️ Not yet implemented - Coming soon!
 
 ```bash
@@ -50,6 +51,7 @@ curl -sL https://oxidemc.dev/install | bash
 ```
 
 ### Option 2: Download Binary
+
 Download the latest release for your platform:
 
 | Platform | Download |
@@ -59,6 +61,7 @@ Download the latest release for your platform:
 | Windows x86_64 | [oxidemc-windows-x86_64.exe](https://github.com/ezraclintoc/OxideMC/releases/latest) |
 
 ### Option 3: Build from Source
+
 ```bash
 git clone https://github.com/ezraclintoc/OxideMC.git
 cd OxideMC
@@ -69,12 +72,14 @@ cargo build --release
 ## 📋 TODO
 
 ### Server Types
+
 - [x] Add Paper server support
 - [x] Add Vanilla server support
 - [x] Add Fabric server support
 - [ ] Add Forge server support
 
 ### Core Features
+
 - [x] Interactive setup wizard (easy/advanced modes)
 - [x] Version selection from available MC versions
 - [x] Automatic JAR downloads with progress
@@ -97,7 +102,7 @@ cargo build --release
 - [ ] Add more platforms for binary releases
 
 ### Polish
-- [ ] Add configuration file support
+- [x] Add configuration file support
 - [ ] Add update checker
 - [ ] Add server properties editor
 
