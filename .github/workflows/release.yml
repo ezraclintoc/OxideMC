@@ -1,3 +1,5 @@
+#git tag v0.0.0
+#git push origin v0.0.0
 name: Release
 
 on:
@@ -15,13 +17,13 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Build x86_64
-        run: cargo build --release --target x86_64-unknown-linux-gnu --locked
+        run: cargo build --release --locked
 
       - name: Upload x86_64
         uses: actions/upload-artifact@v4
         with:
           name: oxidemc-linux-x86_64
-          path: target/x86_64-unknown-linux-gnu/release/oxidemc
+          path: target/release/OxideMC
 
   build-macos:
     runs-on: macos-latest
@@ -38,7 +40,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: oxidemc-macos
-          path: target/release/oxidemc
+          path: target/release/OxideMC
 
   build-windows:
     runs-on: windows-latest
@@ -55,7 +57,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: oxidemc-windows
-          path: target/release/oxidemc.exe
+          path: target/release/OxideMC.exe
 
   release:
     needs: [build-linux, build-macos, build-windows]
@@ -72,9 +74,9 @@ jobs:
       - name: Prepare binaries
         run: |
           cd artifacts
-          cp oxidemc-linux-x86_64/oxidemc ../oxidemc-linux-x86_64
-          cp oxidemc-macos/oxidemc ../oxidemc-macos
-          cp oxidemc-windows/oxidemc.exe ../oxidemc-windows.exe
+          cp oxidemc-linux-x86_64/OxideMC ../oxidemc-linux-x86_64
+          cp oxidemc-macos/OxideMC ../oxidemc-macos
+          cp oxidemc-windows/OxideMC.exe ../oxidemc-windows.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
