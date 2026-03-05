@@ -1,4 +1,4 @@
-use cliclack::{confirm, input, intro, outro, progress_bar, select, spinner};
+use cliclack::{confirm, input, intro, log, outro, progress_bar, select, spinner};
 use reqwest::blocking::Client;
 use serde_json::Value;
 use std::env;
@@ -96,8 +96,56 @@ impl OxideMC {
         }
     }
 
-    pub fn create_from_existing(dir: &PathBuf) -> Result<Self, ()> {
-        todo!("Create from Existing at {}", dir.display());
+    pub fn create_from_existing(dir: &PathBuf) -> Result<Self, String> {
+        let dir = expand_path(dir.to_str().unwrap()).unwrap();
+        let jar_path = dir.join("server.jar");
+        if !jar_path.exists() {
+            let jar = fs::read_dir(&dir)
+                .map_err(|e| e.to_string())?
+                .filter_map(|e| e.ok())
+                .map(|e| e.path())
+                .find(|p| p.extension().and_then(|e| e.to_str()) == Some("jar"));
+
+            match jar {
+                Some(path) => fs::rename(&path, &dir.join("server.jar")).map_err(|e| {
+                    format!("Failed to rename {} to server.jar: {}", path.display(), e)
+                })?,
+                None => return Err("No .jar file found in directory".to_string()),
+            }
+        }
+
+        let versions_dir = dir.join("versions");
+        let mut versions: Vec<String> = fs::read_dir(&versions_dir)
+            .unwrap()
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                if path.is_dir() {
+                    Some(
+                        path.to_str()
+                            .unwrap()
+                            .split("/")
+                            .last()
+                            .unwrap()
+                            .to_string(),
+                    )
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        versions.sort_by(|a, b| {
+            let parse =
+                |v: &str| -> Vec<u32> { v.split('.').filter_map(|n| n.parse().ok()).collect() };
+            parse(b).cmp(&parse(a))
+        });
+
+        Ok(OxideMC {
+            dir: dir.clone(),
+            platform: get_platform(&dir).unwrap(),
+            version: versions.first().unwrap().to_string(),
+        })
     }
 
     pub fn configure(&self) {
@@ -107,7 +155,7 @@ impl OxideMC {
             match page {
                 "main" => {
                     page = select("What do you want to configure?")
-                        .item("Game", "Game Settings", "")
+                        .item("game", "Game Settings", "")
                         .item(
                             "mod",
                             format!(
@@ -122,9 +170,59 @@ impl OxideMC {
                             ),
                             "",
                         )
-                        .item("mods", "Mods", "")
+                        .item("advanced", "advanced", "")
                         .interact()
                         .unwrap();
+                }
+                "game" => {
+                    let subpage = select("Which setting do you want to change?")
+                        .item("difficulty", "Difficulty", "")
+                        .item("gamemode", "Gamemode", "")
+                        .item("pvp", "PVP", "")
+                        .item("back", "Back", "")
+                        .interact()
+                        .unwrap();
+                    match subpage {
+                        "difficulty" => {
+                            let difficulty = select("Select the difficulty level:")
+                                .item("peaceful", "Peaceful", "")
+                                .item("easy", "Easy", "")
+                                .item("normal", "Normal", "")
+                                .item("hard", "Hard", "")
+                                .interact()
+                                .unwrap();
+                            configure_file(
+                                &self.dir,
+                                "server.properties",
+                                "difficulty",
+                                difficulty,
+                            )
+                            .unwrap();
+                        }
+                        "gamemode" => {
+                            let gamemode = select("Select the default gamemode:")
+                                .item("survival", "Survival", "")
+                                .item("creative", "Creative", "")
+                                .item("adventure", "Adventure", "")
+                                .item("spectator", "Spectator", "")
+                                .interact()
+                                .unwrap();
+                            configure_file(&self.dir, "server.properties", "gamemode", gamemode)
+                                .unwrap();
+                        }
+                        "pvp" => {
+                            let pvp = select("Enable PVP?")
+                                .item("true", "Yes", "")
+                                .item("false", "No", "")
+                                .interact()
+                                .unwrap();
+                            configure_file(&self.dir, "server.properties", "pvp", pvp).unwrap();
+                        }
+                        "back" => {
+                            page = "main";
+                        }
+                        _ => {}
+                    }
                 }
                 _ => {
                     println!("This page is not implemented yet.");
@@ -173,7 +271,17 @@ fn main() {
     if action == "install" {
         let _oxide = OxideMC::create_with_interact();
     } else if action == "configure" {
-        todo!("Configuration Menu")
+        let oxide = OxideMC::create_from_existing(
+            &input("Enter the path to your server directory:")
+                .interact()
+                .unwrap(),
+        )
+        .unwrap();
+        log::info(format!(
+            "Server found: {} {}",
+            oxide.platform, oxide.version
+        ));
+        let _ = oxide.configure();
     }
 }
 
@@ -202,11 +310,10 @@ fn get_versions(platform: &str) -> Result<Vec<String>, String> {
         }
 
         versions.sort_by(|a, b| {
-    let parse = |v: &str| -> Vec<u32> {
-        v.split('.').filter_map(|n| n.parse().ok()).collect()
-    };
-    parse(b).cmp(&parse(a))
-});
+            let parse =
+                |v: &str| -> Vec<u32> { v.split('.').filter_map(|n| n.parse().ok()).collect() };
+            parse(b).cmp(&parse(a))
+        });
         Ok(versions)
     } else if platform == "Paper" {
         let json = reqwest::blocking::get("https://api.papermc.io/v2/projects/paper")
@@ -414,4 +521,27 @@ fn expand_path(path: &str) -> Result<PathBuf, String> {
     } else {
         Err("The path does not exist. Please enter a valid directory path.".to_string())
     }
+}
+
+fn get_platform(dir: &PathBuf) -> Result<String, String> {
+    let dir =
+        expand_path(dir.to_str().unwrap()).map_err(|e| format!("Failed to expand path: {}", e))?;
+    let jar_path = dir.join("server.jar");
+    if !jar_path.exists() {
+        return Err("No server.jar found in the specified directory. Please make sure to provide a valid server directory.".to_string());
+    }
+
+    if dir.join("plugins").exists() {
+        return Ok("Paper".to_string());
+    } else if dir.join("mods").exists() {
+        if dir.join(".fabric").exists() {
+            return Ok("Fabric".to_string());
+        } else {
+            return Ok("Forge".to_string());
+        }
+    } else {
+        return Ok("Vanilla".to_string());
+    }
+
+    Err("".to_string())
 }
