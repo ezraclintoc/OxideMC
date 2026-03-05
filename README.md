@@ -8,7 +8,9 @@
 [![GitHub stars](https://img.shields.io/github/stars/ezraclintoc/OxideMC?style=for-the-badge)](https://github.com/ezraclintoc/OxideMC/stargazers)
 [![GitHub forks](https://img.shields.io/github/forks/ezraclintoc/OxideMC?style=for-the-badge)](https://github.com/ezraclintoc/OxideMC/network)
 [![GitHub issues](https://img.shields.io/github/issues/ezraclintoc/OxideMC?style=for-the-badge)](https://github.com/ezraclintoc/OxideMC/issues)
+<br>
 [![GitHub license](https://img.shields.io/github/license/ezraclintoc/OxideMC?style=for-the-badge)](LICENSE)
+[![Website](https://img.shields.io/badge/Website-oxide.clintoc.me-blue?style=for-the-badge&logo=firefox)](https://oxide.clintoc.me)
 
 #### A high-performance, Rust-powered Minecraft server setup tool
 
@@ -44,10 +46,8 @@ Follow these steps to get OxideMC up and running on your local machine.
 
 ### Option 1: Install Script (Recommended)
 
-> ⚠️ Not yet implemented - Coming soon!
-
 ```bash
-curl -sL https://oxidemc.dev/install | bash
+curl -sL https://oxidemc.clintoc.me/install | bash
 ```
 
 ### Option 2: Download Binary
