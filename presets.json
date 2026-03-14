@@ -1,0 +1,48 @@
+{
+  "info": {
+    "name": "Example Preset",
+    "description": "A sample preset showing the structure",
+    "author": "OxideMC",
+    "compatible_versions": ["1.21.*"],
+    "compatible_platforms": ["Paper", "Fabric", "Vanilla"]
+  },
+  "settings": {
+    "server.properties": {
+      "difficulty": "hard",
+      "max-players": "20",
+      "view-distance": "12",
+      "simulation-distance": "8",
+      "motd": "An OxideMC Server"
+    }
+  },
+  "mods": {
+    "resource_packs": [
+      {
+        "name": "Example Resource Pack",
+        "url": "https://example.com/resource-pack.zip",
+        "version": "1.0.0"
+      }
+    ],
+    "datapacks": [
+      {
+        "name": "Example Datapack",
+        "url": "https://example.com/datapack.zip",
+        "version": "1.0.0"
+      }
+    ],
+    "mods": [
+      {
+        "name": "Example Mod",
+        "modrinth_id": "XXXXXXXX",
+        "version": "1.0.0"
+      }
+    ],
+    "plugins": [
+      {
+        "name": "Example Plugin",
+        "modrinth_id": "XXXXXXXX",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}
