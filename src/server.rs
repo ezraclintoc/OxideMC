@@ -28,7 +28,7 @@ impl OxideMC {
             .unwrap();
 
         let input_dir: String = input("Where do you want to save your server?")
-            .default_input("~/minecraft_server")
+            .default_input("./minecraft_servers")
             .required(true)
             .validate(|path: &String| {
                 let epath = expand_path(path);

@@ -6,14 +6,10 @@ use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::PathBuf;
 
 pub fn configure_file(dir: &PathBuf, filename: &str, name: &str, value: &str) -> Result<(), ()> {
-    println!("Configuring {} in {}, the dir is {}", name, filename, dir.display());
     let path = dir.join(filename);
 
-    // If file doesn't exist, create it with the key=value
     if !path.exists() {
-        let mut file = File::create(&path).unwrap();
-        writeln!(file, "{}={}", name, value).unwrap();
-        return Ok(());
+        return Err(());
     }
 
     let input = File::open(&path).unwrap();

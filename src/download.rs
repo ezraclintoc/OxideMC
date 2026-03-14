@@ -166,14 +166,14 @@ pub async fn download_url(url: &str, dir: &PathBuf, filename: &str) -> Result<()
         return Err(format!("Server returned error: {}", res.status()).into());
     }
 
-    let total_size = res.content_length().ok_or("Failed to get content length")?;
+    let total_size = res.content_length().unwrap_or(0);
 
     create_dir_all(&dir)?;
 
     let file_path = dir.join(filename);
     let mut file = File::create(&file_path)?;
 
-    let pb = progress_bar(total_size);
+    let pb = progress_bar(total_size.max(1));
     pb.start(format!("Downloading {}", filename));
 
     let mut downloaded: u64 = 0;
@@ -181,12 +181,19 @@ pub async fn download_url(url: &str, dir: &PathBuf, filename: &str) -> Result<()
     while let Some(chunk) = res.chunk().await? {
         file.write_all(&chunk)?;
         downloaded += chunk.len() as u64;
-        pb.set_message(format!(
-            "{:.2} MB / {:.2} MB",
-            downloaded as f64 / 1_048_576.0,
-            total_size as f64 / 1_048_576.0
-        ));
-        pb.inc(chunk.len() as u64);
+        if total_size > 0 {
+            pb.set_message(format!(
+                "{:.2} MB / {:.2} MB",
+                downloaded as f64 / 1_048_576.0,
+                total_size as f64 / 1_048_576.0
+            ));
+            pb.inc(chunk.len() as u64);
+        } else {
+            pb.set_message(format!(
+                "{:.2} MB downloaded",
+                downloaded as f64 / 1_048_576.0
+            ));
+        }
     }
 
     pb.stop(format!("Finished downloading to {:?}", file_path.display()));
